@@ -1,0 +1,139 @@
+---
+title: "Usage example"
+author: "Hugo Solleder"
+date: today
+format: 
+  html:
+    number-sections: true
+    self-contained: true
+editor: visual
+---
+
+# Accessing the API with the Panel Lemanique data (R)
+
+By default, the URL of the API is `http://127.0.0.1:8000`. You can access the API using the [httr2](https://httr2.r-lib.org/) package:
+
+```{r create-request}
+req <- httr2::request("http://127.0.0.1:8000")
+```
+
+## First query
+
+As a first example, we create a request for the `surveys` endpoint, which will provide metadata about the survey. This requests takes the form `http://127.0.0.1:8000/surveys/{survey_id}`. If we are interested about the survey with the id 1, the request becomes
+
+```{r survey-request}
+
+query_survey <- req |> 
+  httr2::req_url_path_append("surveys") |> 
+  httr2::req_url_path_append(1) 
+
+print(query_survey)
+
+```
+
+Next, we perform the request using `httr2::req_perform`
+
+```{r survey-data}
+
+survey_data <- query_survey |>
+  httr2::req_perform()
+
+print(survey_data)
+
+```
+
+The status indicates that the request was successful and the body contains the data. We can see the data in the JSON returned by the request using
+
+```{r survey-list}
+
+survey_list <- survey_data |> httr2::resp_body_json()
+print(survey_list)
+
+```
+
+The JSON was converted to a flat list in R. We can see that the topic of this survey was `Consommation` and that its name is `Vague 2`.
+
+## Handling NULL in the data
+
+In the previous example, the `survey_date` is `NULL`, such that `survey_list` could not easily be converted to a simple data frame for further manipulation. To solve this, we replace `NULL` values with `NA`
+
+```{r replace-null}
+
+replace_null <- function(variables, ..., replace_by = NA) {
+  rlang::check_dots_empty0()
+  variables |>
+    purrr::map(~ ifelse(is.null(.x), replace_by, .x)) |>
+    tibble::as_tibble()
+}
+
+survey_list |> replace_null()
+
+```
+
+## Querying the questions
+
+As a second example, we create a request for the `questions` endpoint, which will provide all the questions available in the database. This requests takes the form `http://127.0.0.1:8000/questions/`. 
+
+```{r questions-data}
+questions_data <- req |> 
+  httr2::req_url_path_append("questions") |> 
+  httr2::req_perform()
+```
+
+We can then inspect the results of the request
+
+```{r questions-list}
+
+questions_list <- questions_data |> httr2::resp_body_json()
+questions_list |> head(n = 2L) |>  print()
+
+```
+
+Again, the data contains `NULL` values, in this case originating from the `question_type` not being define. Before we are able to convert the list to a data frame, the `NULL` values need to be replaced by an appropriate value, in our case `NA_character_`.
+
+```{r questions-df}
+
+questions_df <- questions_list |> 
+  purrr::map(~ replace_null(.x, replace_by = NA_character_)) |>
+  purrr::list_rbind()
+
+print(questions_df)
+
+```
+
+## Querying a cross-table between two variables
+
+As a third example, we create a request for a cross-table between two variables. The current version assumes that the variables are within the same study. In this case, we create a cross-table between the questions with the IDs 1 and 3: residential status and number of floors in the housing.
+
+```{r crosstable-data}
+
+crosstable_data <- req |> 
+  httr2::req_url_path_append("crosstable") |> 
+  httr2::req_url_query(question1_id = 1, question2_id = 3) |> 
+  httr2::req_perform()
+
+print(crosstable_data)
+
+```
+
+Once the request has been performed, we can create a table in R based on the JSON data.
+
+```{r crosstable-matrix}
+
+crosstable_df <- crosstable_data |> 
+  httr2::resp_body_json() |> 
+  purrr::map(~ replace_null(.x)) |>
+  purrr::list_rbind()
+
+crosstable_matrix <- Matrix::sparseMatrix(
+  crosstable_df$question1_value, 
+  crosstable_df$question2_value,
+  x = crosstable_df$count
+) |> as.matrix() |> as.table()
+
+colnames(crosstable_matrix) <- seq_len(ncol(crosstable_matrix))
+rownames(crosstable_matrix) <- seq_len(nrow(crosstable_matrix))
+
+print(crosstable_matrix)
+
+```
