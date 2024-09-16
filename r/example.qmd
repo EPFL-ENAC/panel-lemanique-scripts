@@ -72,7 +72,7 @@ survey_list |> replace_null()
 
 ## Querying the questions
 
-As a second example, we create a request for the `questions` endpoint, which will provide all the questions available in the database. This requests takes the form `http://127.0.0.1:8000/questions/`. 
+As a second example, we create a request for the `questions` endpoint, which will provide all the questions available in the database. This requests takes the form `http://127.0.0.1:8000/questions/`.
 
 ```{r questions-data}
 questions_data <- req |> 
