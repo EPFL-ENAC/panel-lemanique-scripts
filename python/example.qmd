@@ -1,0 +1,144 @@
+---
+title: "Usage example"
+author: "Hugo Solleder"
+date: today
+format: 
+  html:
+    number-sections: true
+    self-contained: true
+editor: visual
+jupyter: python3
+---
+
+# Accessing the API with the Panel Lemanique data (python)
+
+By default, the URL of the API is `http://127.0.0.1:8000`. You can access the API using the [httr2](https://httr2.r-lib.org/) package:
+
+```{python create-request}
+import requests
+
+base_url = "http://127.0.0.1:8000"
+```
+
+## First query
+
+As a first example, we create a request for the `surveys` endpoint, which will provide metadata about the survey. This requests takes the form `http://127.0.0.1:8000/surveys/{survey_id}`. If we are interested about the survey with the id 1, the request becomes
+
+```{python survey-request}
+
+survey_id = 1
+survey_url = f"{base_url}/surveys/{survey_id}"
+
+response = requests.get(survey_url)
+print(response.url)
+
+```
+
+Next, we perform the request and check if it was successful:
+
+```{python survey-data}
+
+if response.status_code == 200:
+    print("Request successful")
+else:
+    print("Request failed with status", response.status_code)
+
+survey_data = response.json()
+
+```
+
+The status indicates that the request was successful and the body contains the data. We can see the data in the JSON returned by the request using
+
+```{python survey-list}
+
+print(survey_data)
+
+```
+
+The JSON was parsed into a Python dictionary. We can see that the topic of this survey was `Consommation` and that its name is `Vague 2`.
+
+## Handling NULL in the data
+
+In the previous example, the `survey_date` is `None`, which makes it hard to work with. To solve this, we replace `NULL` values with `NA`
+
+```{python replace-null}
+
+import pandas as pd
+
+def replace_null(data, replace_by=pd.NA):
+    return {k: (replace_by if v is None else v) for k, v in data.items()}
+
+survey_data_clean = replace_null(survey_data)
+print(survey_data_clean)
+
+```
+
+## Querying the questions
+
+As a second example, we create a request for the `questions` endpoint, which will provide all the questions available in the database. This requests takes the form `http://127.0.0.1:8000/questions/`.
+
+```{python questions-data}
+
+questions_url = f"{base_url}/questions"
+questions_response = requests.get(questions_url)
+
+```
+
+We can then inspect the results of the request
+
+```{python questions-list}
+
+questions_data = questions_response.json()
+print(questions_data[:2])  # Display the first two questions
+
+```
+
+Again, the data contains `None` values, in this case originating from the `question_type` not being define. Before we are able to convert the list to a data frame, the `None` values need to be replaced by an appropriate value, in our case `NA`.
+
+```{python questions-df}
+
+questions_data_clean = [replace_null(q, replace_by=pd.NA) for q in questions_data]
+
+# Convert the cleaned data into a pandas DataFrame
+questions_df = pd.DataFrame(questions_data_clean)
+print(questions_df.head())
+
+```
+
+## Querying a cross-table between two variables
+
+As a third example, we create a request for a cross-table between two variables. The current version assumes that the variables are within the same study. In this case, we create a cross-table between the questions with the IDs 1 and 3: residential status and number of floors in the housing.
+
+```{python crosstable-data}
+
+crosstable_url = f"{base_url}/crosstable"
+params = {
+    "question1_id": 1,
+    "question2_id": 3
+}
+crosstable_response = requests.get(crosstable_url, params=params)
+
+crosstable_data = crosstable_response.json()
+print(crosstable_data)
+
+```
+
+Once the request has been performed, we can create a table in R based on the JSON data.
+
+```{python crosstable-matrix}
+
+import numpy as np
+
+crosstable_df = pd.DataFrame(crosstable_data)
+
+crosstable_matrix = pd.pivot_table(
+    crosstable_df,
+    values='count',
+    index='question1_value',
+    columns='question2_value',
+    fill_value=0
+)
+
+print(crosstable_matrix)
+
+```
